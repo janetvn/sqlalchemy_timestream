@@ -1,1 +1,6 @@
 /build/
+/dist/
+/sqlalchemy_jdbcapi_timestream.egg-info/
+*.xml
+*.iml
+sqlalchemy_jdbcapi.egg-info/*
