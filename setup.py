@@ -9,7 +9,7 @@ with open("README.rst", "r") as fh:
     long_description = fh.read()
 
 setup(
-    name="sqlalchemy_jdbcapi_timestream",
+    name="sqlalchemy-jdbcapi-timestream",
     version="1.0.0",
     description=DESCRIPTION,
     long_description=long_description,
