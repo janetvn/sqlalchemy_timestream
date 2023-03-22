@@ -34,7 +34,7 @@ setup(
     keywords="SQLAlchemy JDBCAPI Dialect for Amazon Timestream using JDBC connection",
     entry_points={
         "sqlalchemy.dialects": [
-            "jdbcapi.timestream = sqlalchemy_timestream.timestreamjdbc:TimestreamJDBCDialect",
+            "jdbcapi.timestream = sqlalchemy_timestream.sqlalchemy_timestream.timestreamjdbc:TimestreamJDBCDialect",
         ]
     },
 )
