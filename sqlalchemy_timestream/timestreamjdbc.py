@@ -8,7 +8,7 @@ import logging
 from .base import BaseDialect
 
 from sqlalchemy import exc, util
-from sqlalchemy.engine import Engine, reflection
+from sqlalchemy.engine import Engine, reflection, URL
 from sqlalchemy.engine.default import DefaultDialect
 from sqlalchemy.sql.compiler import (
     DDLCompiler,
@@ -191,6 +191,10 @@ _TYPE_MAPPINGS = {
 
 
 class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
+    _ENV_AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID"
+    _ENV_AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
+    _ENV_AWS_REGION = "AWS_REGION"
+
     jdbc_db_name = "awstimestream"
     jdbc_driver_name = "software.amazon.timestream.jdbc.TimestreamDriver"
     jdbc_driver_version = "2.0.0"
@@ -224,15 +228,12 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
     def initialize(self, connection):
         super(TimestreamJDBCDialect, self).initialize(connection)
 
-    def _driver_kwargs(self, url):
-        return {}
-
     def _raw_connection(self, connection):
         if isinstance(connection, Engine):
             return connection.raw_connection()
         return connection.connection
 
-    def _get_assumed_role_credentials(self, role_arn, region):
+    def _assume_role(self, role_arn: str):
         # Call STS client and the assume_role method of the STSConnection object and pass the role ARN and a role
         # session name.
         assumed_role_object = boto3.client("sts").assume_role(
@@ -242,60 +243,52 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
         # subsequent API calls
         credentials = assumed_role_object["Credentials"]
         # Use the temporary credentials that AssumeRole returns to make a
-        return (
-            credentials["AccessKeyId"],
-            credentials["SecretAccessKey"],
-            credentials["SessionToken"],
-        )
+        return credentials
 
     def _find_jar_path_in_class_path(self):
         try:
             class_path = os.getenv("CLASSPATH")
             paths = class_path.split(":")
             for path in paths:
-                if TimestreamJDBCDialect.jdbc_jar_name in path:
+                if self.jdbc_jar_name in path:
                     return path
         except Exception as e:
             traceback.print_exc()
 
-    def create_connect_args(self, url):
+    def create_connect_args(self, url: URL = None):
         if url is None:
             return
+
         # dialects expect jdbc url e.g.
-        # Connection string format: jdbc:timestream://
-        s: str = str(url)
-        jdbc_url = r"jdbc:timestream://"
-        # create driver_args dictionary that contains connection properties
+        # Connection string format: "jdbcapi+timestream://{aws_access_key_id}:{aws_secret_access_key}@timestream.{region}.amazonaws.com/{database_name}?application_name={application_name}t&use_instance_profile={true}&role_arn=a{quote_plus_role_arn}"
         # Ref: https://docs.aws.amazon.com/timestream/latest/developerguide/JDBC.connection-properties.html
-        properties: str = s.split("//", 1)[-1].split(";")
-        logger.info(f"Initial properties URL: {properties}")
-        driver_args = {}
-        for prop in properties:
-            logger.info(prop)
-            k, v = prop.split("=")[0], prop.split("=")[1]
-            driver_args[k] = v
+        # Build driver arguments - # get region_name from url.host
+        driver_args = {"Region": re.sub(
+            r"^timestream\.([a-z0-9-]+)\.amazonaws\.(com|com.cn)$", r"\1", url.host
+        )}
 
-        if not driver_args.get("Region"):
-            driver_args["Region"] = os.getenv("AWS_DEFAULT_REGION")
+        if url.username is not None:
+            driver_args["AccessKeyId"] = url.username
+        if url.password is not None:
+            driver_args["SecretAccessKey"] = url.password
 
-        # get temporary credentials from assuming role
-        if driver_args.get("RoleArn"):
-            role_arn = unquote_plus(driver_args.get("RoleArn"))
-            (
-                aws_access_key_id,
-                aws_secret_access_key,
-                aws_session_token,
-            ) = self._get_assumed_role_credentials(
-                role_arn, driver_args.get("Region")
+        if url.query.get("role_arn"):
+            creds = self._assume_role(role_arn=url.query.get("role_arn"))
+            driver_args.update(
+                {
+                    "AccessKeyId": creds["AccessKeyId"],
+                    "SecretAccessKey": creds["SecretAccessKey"],
+                    "SessionToken": creds["SessionToken"],
+                }
             )
-            driver_args["AccessKeyId"] = aws_access_key_id
-            driver_args["SecretAccessKey"] = aws_secret_access_key
-            driver_args["SessionToken"] = aws_session_token
+
+        if url.query.get("use_instance_profile") == "true":
+            driver_args["AwsCredentialsProviderClass"] = "InstanceProfileCredentialsProvider"
 
         driver_jar_path = (
             self._find_jar_path_in_class_path()
-            if driver_args.get("DriverPath") is None
-            else driver_args.get("DriverPath")
+            if url.query.get("driver_path") is None
+            else url.query.get("driver_path")
         )
 
         if driver_jar_path is None:
@@ -304,13 +297,9 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
                 "CLASSPATH"
             )
 
-        logger.info(f"Final JDBC URL: {jdbc_url}")
-        # logger.info(f"Connection properties: {driver_args}")
-        logger.info(f"Driver JAR path: {driver_jar_path}")
-
         kwargs = {
             "jclassname": self.jdbc_driver_name,
-            "url": jdbc_url,
+            "url": r"jdbc:timestream://",
             # pass driver args via JVM System settings
             "driver_args": driver_args,
             "jars": driver_jar_path,

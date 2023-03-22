@@ -27,14 +27,14 @@ setup(
         "Topic :: Database :: Front-Ends",
         "Operating System :: OS Independent",
     ],
-    packages=find_packages(include=["sqlalchemy_jdbcapi_timestream"]),
+    packages=find_packages(include=["sqlalchemy_timestream"]),
     include_package_data=True,
-    install_requires=["SQLAlchemy", "JayDeBeApi"],
+    install_requires=["SQLAlchemy", "JayDeBeApi", "boto3"],
     zip_safe=False,
     keywords="SQLAlchemy JDBCAPI Dialect for Amazon Timestream using JDBC connection",
     entry_points={
         "sqlalchemy.dialects": [
-            "jdbcapi.timestream = sqlalchemy_timestream.sqlalchemy_timestream.timestreamjdbc:TimestreamJDBCDialect",
+            "jdbcapi.timestream = sqlalchemy_timestream.timestreamjdbc:TimestreamJDBCDialect",
         ]
     },
 )
