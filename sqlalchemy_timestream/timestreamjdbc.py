@@ -304,7 +304,7 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
             )
 
         logger.info(f"Final JDBC URL: {jdbc_url}")
-        logger.info(f"Connection properties: {driver_args}")
+        # logger.info(f"Connection properties: {driver_args}")
         logger.info(f"Driver JAR path: {driver_jar_path}")
 
         kwargs = {
