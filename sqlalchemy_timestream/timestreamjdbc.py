@@ -245,7 +245,8 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
                 raise Exception("JDBC driver JAR path is not found in CLASS_PATH environment variable. Please set "
                                 "the driver path in the aforementioned environment variable or in the property "
                                 "DriverPath of the connection string")
-            for path in class_path:
+            paths = class_path.split(":")
+            for path in paths:
                 if TimestreamJDBCDialect.jdbc_jar_name in path:
                     return path
         except Exception as e:
