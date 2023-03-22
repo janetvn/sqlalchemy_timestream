@@ -1,5 +1,4 @@
 import os
-import pprint
 import re
 import traceback
 
@@ -27,6 +26,7 @@ from sqlalchemy.sql.sqltypes import (
     STRINGTYPE,
     TIMESTAMP,
 )
+from urllib.parse import unquote_plus
 
 
 logger = logging.getLogger(__name__)
@@ -280,12 +280,13 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
 
         # get temporary credentials from assuming role
         if driver_args.get("RoleArn"):
+            role_arn = unquote_plus(driver_args.get("RoleArn"))
             (
                 aws_access_key_id,
                 aws_secret_access_key,
                 aws_session_token,
             ) = self._get_assumed_role_credentials(
-                driver_args.get("RoleArn"), driver_args.get("Region")
+                role_arn, driver_args.get("Region")
             )
             driver_args["AccessKeyId"] = aws_access_key_id
             driver_args["SecretAccessKey"] = aws_secret_access_key
