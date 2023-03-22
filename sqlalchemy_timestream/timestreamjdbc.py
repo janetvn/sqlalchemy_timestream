@@ -1,6 +1,10 @@
 import os
+import pprint
 import re
+import traceback
+
 import boto3
+import logging
 
 from .base import BaseDialect
 
@@ -23,6 +27,9 @@ from sqlalchemy.sql.sqltypes import (
     STRINGTYPE,
     TIMESTAMP,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class UniversalSet(object):
@@ -71,7 +78,6 @@ class TimestreamStatementCompiler(SQLCompiler):
 
 
 class TimestreamTypeCompiler(GenericTypeCompiler):
-
     def visit_INTEGER(self, type_, **kw):
         return "INTEGER"
 
@@ -236,21 +242,21 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
         # subsequent API calls
         credentials = assumed_role_object["Credentials"]
         # Use the temporary credentials that AssumeRole returns to make a
-        return credentials["AccessKeyId"], credentials["SecretAccessKey"], credentials["SessionToken"]
+        return (
+            credentials["AccessKeyId"],
+            credentials["SecretAccessKey"],
+            credentials["SessionToken"],
+        )
 
     def _find_jar_path_in_class_path(self):
         try:
             class_path = os.getenv("CLASSPATH")
-            if class_path is None:
-                raise Exception("JDBC driver JAR path is not found in CLASSPATH environment variable. Please set "
-                                "the driver path in the aforementioned environment variable or in the property "
-                                "DriverPath of the connection string")
             paths = class_path.split(":")
             for path in paths:
                 if TimestreamJDBCDialect.jdbc_jar_name in path:
                     return path
         except Exception as e:
-            raise Exception(str(e))
+            traceback.print_exc()
 
     def create_connect_args(self, url):
         if url is None:
@@ -262,10 +268,10 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
         # create driver_args dictionary that contains connection properties
         # Ref: https://docs.aws.amazon.com/timestream/latest/developerguide/JDBC.connection-properties.html
         properties: str = s.split("//", 1)[-1].split(";")
-        print(f"Initial properties URL: {properties}")
+        logger.info(f"Initial properties URL: {properties}")
         driver_args = {}
         for prop in properties:
-            print(prop)
+            logger.info(prop)
             k, v = prop.split("=")[0], prop.split("=")[1]
             driver_args[k] = v
 
@@ -274,22 +280,32 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
 
         # get temporary credentials from assuming role
         if driver_args.get("RoleArn"):
-            aws_access_key_id, aws_secret_access_key, aws_session_token = self._get_assumed_role_credentials(driver_args.get("RoleArn"), driver_args.get("Region"))
+            (
+                aws_access_key_id,
+                aws_secret_access_key,
+                aws_session_token,
+            ) = self._get_assumed_role_credentials(
+                driver_args.get("RoleArn"), driver_args.get("Region")
+            )
             driver_args["AccessKeyId"] = aws_access_key_id
             driver_args["SecretAccessKey"] = aws_secret_access_key
             driver_args["SessionToken"] = aws_session_token
 
-        driver_jar_path = None
-
-        if driver_args.get("DriverPath"):
-            driver_jar_path = driver_args.get("DriverPath")
+        driver_jar_path = (
+            self._find_jar_path_in_class_path()
+            if driver_args.get("DriverPath") is None
+            else driver_args.get("DriverPath")
+        )
 
         if driver_jar_path is None:
-            driver_jar_path = self._find_jar_path_in_class_path()
+            raise Exception(
+                "No JDBC Driver path is provided in the connection string or the environment variable "
+                "CLASSPATH"
+            )
 
-        print(f"Final JDBC URL: {jdbc_url}")
-        print(f"Connection properties: {driver_args}")
-        print(f"Driver JAR path: {driver_jar_path}")
+        logger.info(f"Final JDBC URL: {jdbc_url}")
+        logger.info(f"Connection properties: {driver_args}")
+        logger.info(f"Driver JAR path: {driver_jar_path}")
 
         kwargs = {
             "jclassname": self.jdbc_driver_name,
@@ -314,7 +330,9 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
         query = """
                 SELECT TABLES
                 FROM {}
-                """.format(schema)
+                """.format(
+            schema
+        )
         return [row.table_name for row in connection.execute(query).fetchall()]
 
     def has_table(self, connection, table_name, schema=None):
@@ -329,7 +347,9 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
         schema = schema if schema else raw_connection.schema_name
         query = """
                 DESCRIBE {schema}.{table}
-                """.format(schema=schema, table=table_name)
+                """.format(
+            schema=schema, table=table_name
+        )
         return [
             {
                 "name": row.column_name,
@@ -370,4 +390,3 @@ class TimestreamJDBCDialect(BaseDialect, DefaultDialect):
     def _check_unicode_description(self, connection):
         # Requests gives back Unicode strings
         return True
-
